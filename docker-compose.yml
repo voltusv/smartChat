@@ -1,0 +1,41 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: smartchat
+      POSTGRES_PASSWORD: smartchat_dev
+      POSTGRES_DB: smartchat
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartchat"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://smartchat:smartchat_dev@db:5432/smartchat
+    env_file:
+      - .env
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/static:/app/static
+
+  admin:
+    build: ./admin
+    ports:
+      - "3001:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

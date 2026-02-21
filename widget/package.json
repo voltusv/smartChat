@@ -1,0 +1,16 @@
+{
+  "name": "smartchat-widget",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/widget.js --bundle --minify --loader:.css=text --outfile=../backend/static/widget/widget.js",
+    "dev": "esbuild src/widget.js --bundle --loader:.css=text --outfile=../backend/static/widget/widget.js --watch"
+  },
+  "dependencies": {
+    "marked": "^15.0.0",
+    "dompurify": "^3.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

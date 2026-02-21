@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartChat Widget Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 100px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 { color: #4F46E5; }
+        .card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        code {
+            background: #e5e7eb;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .links a {
+            display: inline-block;
+            margin-right: 15px;
+            color: #4F46E5;
+            text-decoration: none;
+        }
+        .links a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h1>🤖 SmartChat Widget Test</h1>
+    
+    <div class="card">
+        <h3>How it works</h3>
+        <p>This page demonstrates the embeddable AI chat widget. Look for the chat bubble in the bottom-right corner!</p>
+        <p>The widget connects to your SmartChat backend via WebSocket for real-time streaming responses.</p>
+    </div>
+
+    <div class="card">
+        <h3>Integration</h3>
+        <p>To embed this widget on any site, just add:</p>
+        <pre><code>&lt;script src="http://localhost:8000/widget.js" 
+        data-api-key="test-key-123"&gt;&lt;/script&gt;</code></pre>
+    </div>
+
+    <div class="card">
+        <h3>Quick Links</h3>
+        <div class="links">
+            <a href="http://localhost:5173" target="_blank">📊 Admin Panel</a>
+            <a href="http://localhost:8000/docs" target="_blank">📚 API Docs</a>
+            <a href="http://localhost:8000/health" target="_blank">💚 Health Check</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Features</h3>
+        <ul>
+            <li>Real-time streaming responses via WebSocket</li>
+            <li>RAG support - upload PDFs, TXT, CSV to knowledge base</li>
+            <li>Customizable appearance (colors, greeting, position)</li>
+            <li>Conversation history persistence</li>
+            <li>Mobile responsive design</li>
+        </ul>
+    </div>
+
+    <!-- SmartChat Widget -->
+    <script src="http://localhost:8000/widget.js" data-api-key="test-key-123"></script>
+</body>
+</html>

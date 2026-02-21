@@ -1,0 +1,30 @@
+SmartChat Company Information
+============================
+
+Company Name: SmartChat AI Solutions
+Founded: 2024
+Headquarters: Toronto, Canada
+
+Our Products:
+- SmartChat Widget: An embeddable AI chat widget for websites
+- SmartChat Admin: A backoffice panel for managing AI assistants
+- SmartChat RAG: A retrieval-augmented generation pipeline
+
+Key Features:
+- Real-time streaming responses
+- Custom knowledge bases from PDFs, CSV, and text files
+- Multi-tenant architecture
+- WebSocket and REST API support
+
+Pricing Plans:
+- Free Tier: Up to 1,000 messages/month
+- Pro: $49/month - 50,000 messages/month
+- Enterprise: Custom pricing - Unlimited messages
+
+Support:
+- Email: support@smartchat.ai
+- Phone: 1-800-SMART-CHAT
+- Live chat: Available 24/7 on our website
+
+Our team has 10+ years of experience in AI and machine learning.
+We serve over 500 companies worldwide.
