@@ -6,17 +6,67 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, select, func
 
 from app.database import engine, async_session, Base
-from app.models import Tenant, LLMConfig, WidgetConfig
+from app.models import Tenant, LLMConfig, WidgetConfig, AuthConfig
 from app.config import settings
-from app.api import chat, admin, widget
+from app.api import chat, admin, widget, auth
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create tables and seed data
     async with engine.begin() as conn:
+        # Extensions
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+
+        # Create tables (does not alter existing ones)
         await conn.run_sync(Base.metadata.create_all)
+
+        # --- Lightweight migrations (safe/idempotent) ---
+
+        # LLM config additions
+        await conn.execute(text(
+            "ALTER TABLE llm_configs ADD COLUMN IF NOT EXISTS base_url VARCHAR(500)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE llm_configs ALTER COLUMN api_key DROP NOT NULL"
+        ))
+
+        # Conversation user-scoping columns
+        await conn.execute(text(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id VARCHAR(255)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_email VARCHAR(255)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_name VARCHAR(255)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_context JSONB DEFAULT '{}'::jsonb"
+        ))
+
+        # Auth config table (for widget login)
+        await conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS auth_configs (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                tenant_id UUID NOT NULL UNIQUE REFERENCES tenants(id),
+                auth_mode VARCHAR(50) DEFAULT 'none',
+                login_url VARCHAR(500),
+                login_method VARCHAR(10) DEFAULT 'POST',
+                email_field VARCHAR(100) DEFAULT 'email',
+                password_field VARCHAR(100) DEFAULT 'password',
+                response_user_id_path VARCHAR(255) DEFAULT 'user._id',
+                response_token_path VARCHAR(255) DEFAULT 'token',
+                response_name_path VARCHAR(255),
+                response_email_path VARCHAR(255),
+                extra_headers JSONB DEFAULT '{}'::jsonb,
+                jwt_secret VARCHAR(255),
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            """
+        ))
 
     # Seed default tenant if no tenants exist
     async with async_session() as db:
@@ -24,7 +74,8 @@ async def lifespan(app: FastAPI):
         tenant_count = count_result.scalar()
 
         if tenant_count == 0:
-            api_key = "sc_live_" + secrets.token_urlsafe(32)
+            # Use DEFAULT_API_KEY from env if set (dev), otherwise generate secure key (prod)
+            api_key = settings.default_api_key or ("sc_live_" + secrets.token_urlsafe(32))
             tenant = Tenant(name="Default", embed_api_key=api_key)
             db.add(tenant)
             await db.commit()
@@ -76,6 +127,7 @@ app.add_middleware(
 
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(widget.router, tags=["widget"])
 
 

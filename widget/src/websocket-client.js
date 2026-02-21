@@ -46,9 +46,13 @@ export class WebSocketClient {
     };
   }
 
-  send(message, apiKey) {
+  send(message, apiKey, userToken = null) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ message, api_key: apiKey }));
+      const payload = { message, api_key: apiKey };
+      if (userToken) {
+        payload.user_token = userToken;
+      }
+      this.ws.send(JSON.stringify(payload));
       return true;
     }
     return false;

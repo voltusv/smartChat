@@ -19,11 +19,22 @@ class LLMService:
         model: str = "gpt-4o-mini",
         temperature: float = 0.7,
         max_tokens: int = 1024,
+        provider: str = "openai",
+        base_url: str | None = None,
     ):
-        self.client = openai.AsyncOpenAI(api_key=api_key)
+        client_kwargs = {"api_key": api_key}
+
+        if provider == "ollama":
+            client_kwargs["api_key"] = "ollama"  # Ollama ignores this but SDK requires it
+            client_kwargs["base_url"] = base_url or "http://localhost:11434/v1"
+        elif base_url:
+            client_kwargs["base_url"] = base_url
+
+        self.client = openai.AsyncOpenAI(**client_kwargs)
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.provider = provider
 
     async def chat_stream(
         self, 

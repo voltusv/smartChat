@@ -73,6 +73,19 @@
   justify-content: space-between;
 }
 
+.sc-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sc-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
 .sc-close {
   background: none;
   border: none;
@@ -86,6 +99,93 @@
 
 .sc-close:hover {
   opacity: 1;
+}
+
+/* Login form */
+.sc-login-form {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sc-login-form.sc-hidden {
+  display: none;
+}
+
+.sc-login-title {
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 8px;
+  color: #374151;
+}
+
+.sc-login-email,
+.sc-login-password {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.sc-login-email:focus,
+.sc-login-password:focus {
+  border-color: var(--sc-primary, #4F46E5);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+}
+
+.sc-login-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: var(--sc-primary, #4F46E5);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  margin-top: 4px;
+}
+
+.sc-login-btn:hover {
+  opacity: 0.9;
+}
+
+.sc-login-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sc-login-error {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.sc-login-error.sc-hidden {
+  display: none;
+}
+
+/* Chat area wrapper */
+.sc-chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sc-chat-area.sc-hidden {
+  display: none;
 }
 
 .sc-messages {

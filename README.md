@@ -265,8 +265,8 @@ Services:
 
 ## Roadmap
 
-- [ ] Multi-tenant authentication
-- [ ] Ollama/local LLM support
+- [x] Multi-tenant authentication
+- [x] Ollama/local LLM support
 - [ ] Human handoff to live agents
 - [ ] Webhooks for external integrations
 - [ ] Analytics dashboard

@@ -18,9 +18,11 @@ from app.services.db_connector import DBConnector
 class ToolExecutor:
     """Executes tools requested by the LLM."""
     
-    def __init__(self, db: AsyncSession, tenant_id: uuid.UUID):
+    def __init__(self, db: AsyncSession, tenant_id: uuid.UUID, user_id: str = None, user_context: dict = None):
         self.db = db
         self.tenant_id = tenant_id
+        self.user_id = user_id  # Current authenticated user
+        self.user_context = user_context or {}
         self._connectors: dict[str, DBConnector] = {}
     
     async def get_available_tools(self) -> list[dict]:
@@ -277,4 +279,11 @@ class ToolExecutor:
             prompt += f"\n- {func.get('name')}: {func.get('description', '')[:200]}"
         
         prompt += "\n\nUse these tools when the user asks questions about business data. Always try to answer using the available data."
+        
+        # Add user scoping instructions if user is identified
+        if self.user_id:
+            prompt += f"\n\nIMPORTANT: The current user's ID is '{self.user_id}'. "
+            prompt += "When querying data, ALWAYS filter by this user's ID to ensure they only see their own data. "
+            prompt += "For MongoDB queries, add the user ID to the filter. For SQL queries, add a WHERE clause."
+        
         return prompt

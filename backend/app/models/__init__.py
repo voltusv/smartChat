@@ -8,6 +8,7 @@ from app.models.models import (
     WidgetConfig,
     DBConnection,
     Tool,
+    AuthConfig,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "WidgetConfig",
     "DBConnection",
     "Tool",
+    "AuthConfig",
 ]

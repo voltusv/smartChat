@@ -27,11 +27,12 @@ class LLMConfig(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     provider = Column(String(50), default="openai")
-    api_key = Column(Text, nullable=False)
+    api_key = Column(Text, nullable=True)
     model = Column(String(100), default="gpt-4o-mini")
     temperature = Column(Float, default=0.7)
     max_tokens = Column(Integer, default=1024)
     system_prompt = Column(Text, default="You are a helpful assistant.")
+    base_url = Column(String(500), nullable=True)
 
 
 class KnowledgeSource(Base):
@@ -66,6 +67,11 @@ class Conversation(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     session_id = Column(String(255), unique=True, nullable=False)
+    # User identification (from embedded context or widget login)
+    user_id = Column(String(255), nullable=True)  # External user ID
+    user_email = Column(String(255), nullable=True)
+    user_name = Column(String(255), nullable=True)
+    user_context = Column(JSON, default=dict)  # Any extra user data
     started_at = Column(DateTime(timezone=True), default=utcnow)
     metadata_json = Column(JSON, default=dict)
 
@@ -134,4 +140,37 @@ class Tool(Base):
     db_connection_id = Column(UUID(as_uuid=True), ForeignKey("db_connections.id"), nullable=True)
     config_json = Column(JSON, default=dict)  # Query template, parameters, etc.
     enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class AuthConfig(Base):
+    """Authentication configuration for widget users."""
+    __tablename__ = "auth_configs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, unique=True)
+    
+    # Auth mode: "none", "embedded_only", "external_api"
+    auth_mode = Column(String(50), default="none")
+    
+    # External API configuration
+    login_url = Column(String(500), nullable=True)  # e.g., https://ducapp.com/api/login
+    login_method = Column(String(10), default="POST")  # POST, GET
+    
+    # Request field mapping (what to send)
+    email_field = Column(String(100), default="email")  # Field name for email in request
+    password_field = Column(String(100), default="password")  # Field name for password
+    
+    # Response field mapping (what to extract from response)
+    response_user_id_path = Column(String(255), default="user._id")  # JSON path to user ID
+    response_token_path = Column(String(255), default="token")  # JSON path to token
+    response_name_path = Column(String(255), nullable=True)  # JSON path to user name (optional)
+    response_email_path = Column(String(255), nullable=True)  # JSON path to email (optional)
+    
+    # Extra headers for the API call (e.g., API keys)
+    extra_headers = Column(JSON, default=dict)
+    
+    # JWT secret for signing widget tokens (if needed)
+    jwt_secret = Column(String(255), nullable=True)
+    
     created_at = Column(DateTime(timezone=True), default=utcnow)

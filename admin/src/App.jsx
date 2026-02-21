@@ -175,7 +175,9 @@ const styles = {
 // --- LLM Config Tab ---
 function LLMConfigTab({ tenantId }) {
   const [config, setConfig] = useState({
+    provider: "openai",
     api_key: "",
+    base_url: "",
     model: "gpt-4o-mini",
     temperature: 0.7,
     max_tokens: 1024,
@@ -183,6 +185,8 @@ function LLMConfigTab({ tenantId }) {
   });
   const [status, setStatus] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
 
   useEffect(() => {
     fetch(`${API_BASE}/llm/config${tenantQuery(tenantId)}`)
@@ -191,16 +195,43 @@ function LLMConfigTab({ tenantId }) {
         if (data.configured) {
           setConfig((c) => ({
             ...c,
+            provider: data.provider || "openai",
+            base_url: data.base_url || "",
             model: data.model || c.model,
             temperature: data.temperature ?? c.temperature,
             max_tokens: data.max_tokens ?? c.max_tokens,
             system_prompt: data.system_prompt || c.system_prompt,
           }));
+          // Auto-fetch Ollama models if provider is ollama
+          if (data.provider === "ollama") {
+            fetchOllamaModels(data.base_url || "http://localhost:11434");
+          }
         }
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
   }, [tenantId]);
+
+  const fetchOllamaModels = async (url) => {
+    setFetchingModels(true);
+    try {
+      const base = url || config.base_url || "http://localhost:11434";
+      const res = await fetch(`${API_BASE}/llm/ollama-models?base_url=${encodeURIComponent(base)}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to fetch models");
+      }
+      const data = await res.json();
+      setOllamaModels(data.models || []);
+      if (data.models?.length > 0 && !data.models.includes(config.model)) {
+        setConfig((c) => ({ ...c, model: data.models[0] }));
+      }
+    } catch (e) {
+      setStatus({ type: "error", text: `Ollama: ${e.message}` });
+      setOllamaModels([]);
+    }
+    setFetchingModels(false);
+  };
 
   const save = async () => {
     setStatus(null);
@@ -220,6 +251,8 @@ function LLMConfigTab({ tenantId }) {
     }
   };
 
+  const isOllama = config.provider === "ollama";
+
   if (!loaded) return <div style={styles.card}>Loading...</div>;
 
   return (
@@ -231,25 +264,91 @@ function LLMConfigTab({ tenantId }) {
         </div>
       )}
       <div style={styles.formGroup}>
-        <label style={styles.label}>OpenAI API Key</label>
-        <input
-          style={styles.input}
-          type="password"
-          placeholder="sk-..."
-          value={config.api_key}
-          onChange={(e) => setConfig({ ...config, api_key: e.target.value })}
-        />
-        <span style={{ fontSize: 12, color: "#9ca3af" }}>Leave empty to keep existing key</span>
-      </div>
-      <div style={styles.formGroup}>
-        <label style={styles.label}>Model</label>
-        <select style={styles.select} value={config.model} onChange={(e) => setConfig({ ...config, model: e.target.value })}>
-          <option value="gpt-4o-mini">gpt-4o-mini</option>
-          <option value="gpt-4o">gpt-4o</option>
-          <option value="gpt-4-turbo">gpt-4-turbo</option>
-          <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+        <label style={styles.label}>Provider</label>
+        <select
+          style={styles.select}
+          value={config.provider}
+          onChange={(e) => {
+            const p = e.target.value;
+            setConfig((c) => ({
+              ...c,
+              provider: p,
+              model: p === "openai" ? "gpt-4o-mini" : (ollamaModels[0] || ""),
+              base_url: p === "ollama" ? (c.base_url || "http://localhost:11434") : "",
+            }));
+            if (p === "ollama") fetchOllamaModels(config.base_url || "http://localhost:11434");
+          }}
+        >
+          <option value="openai">OpenAI</option>
+          <option value="ollama">Ollama (Local)</option>
         </select>
       </div>
+
+      {isOllama ? (
+        <>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Ollama URL</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                style={{ ...styles.input, flex: 1 }}
+                value={config.base_url}
+                onChange={(e) => setConfig({ ...config, base_url: e.target.value })}
+                placeholder="http://localhost:11434"
+              />
+              <button
+                style={{ ...styles.button, whiteSpace: "nowrap" }}
+                onClick={() => fetchOllamaModels(config.base_url)}
+                disabled={fetchingModels}
+              >
+                {fetchingModels ? "Fetching..." : "Fetch Models"}
+              </button>
+            </div>
+            <span style={{ fontSize: 12, color: "#9ca3af" }}>
+              Make sure Ollama is running. Install models with: ollama pull llama3.2
+            </span>
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Model</label>
+            {ollamaModels.length > 0 ? (
+              <select style={styles.select} value={config.model} onChange={(e) => setConfig({ ...config, model: e.target.value })}>
+                {ollamaModels.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                style={styles.input}
+                value={config.model}
+                onChange={(e) => setConfig({ ...config, model: e.target.value })}
+                placeholder="e.g., llama3.2, mistral, codellama"
+              />
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>OpenAI API Key</label>
+            <input
+              style={styles.input}
+              type="password"
+              placeholder="sk-..."
+              value={config.api_key}
+              onChange={(e) => setConfig({ ...config, api_key: e.target.value })}
+            />
+            <span style={{ fontSize: 12, color: "#9ca3af" }}>Leave empty to keep existing key</span>
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Model</label>
+            <select style={styles.select} value={config.model} onChange={(e) => setConfig({ ...config, model: e.target.value })}>
+              <option value="gpt-4o-mini">gpt-4o-mini</option>
+              <option value="gpt-4o">gpt-4o</option>
+              <option value="gpt-4-turbo">gpt-4-turbo</option>
+              <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+            </select>
+          </div>
+        </>
+      )}
       <div style={{ display: "flex", gap: 16 }}>
         <div style={{ ...styles.formGroup, flex: 1 }}>
           <label style={styles.label}>Temperature ({config.temperature})</label>
@@ -1449,10 +1548,224 @@ function APIKeysTab({ activeTenantId, onTenantChange }) {
   );
 }
 
+// --- Auth Config Tab ---
+function AuthConfigTab({ tenantId }) {
+  const [config, setConfig] = useState({
+    auth_mode: "none",
+    login_url: "",
+    login_method: "POST",
+    email_field: "email",
+    password_field: "password",
+    response_user_id_path: "user._id",
+    response_token_path: "token",
+    response_name_path: "",
+    response_email_path: "",
+  });
+  const [status, setStatus] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/auth/config${tenantQuery(tenantId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setConfig({
+          auth_mode: data.auth_mode || "none",
+          login_url: data.login_url || "",
+          login_method: data.login_method || "POST",
+          email_field: data.email_field || "email",
+          password_field: data.password_field || "password",
+          response_user_id_path: data.response_user_id_path || "user._id",
+          response_token_path: data.response_token_path || "token",
+          response_name_path: data.response_name_path || "",
+          response_email_path: data.response_email_path || "",
+        });
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [tenantId]);
+
+  const save = async () => {
+    setStatus(null);
+    try {
+      const res = await fetch(`${API_BASE}/auth/config${tenantQuery(tenantId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      setStatus({ type: "success", text: "Auth configuration saved!" });
+    } catch {
+      setStatus({ type: "error", text: "Failed to save auth configuration" });
+    }
+  };
+
+  const generateSecret = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/generate-secret${tenantQuery(tenantId)}`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Failed to generate");
+      setStatus({ type: "success", text: "JWT secret generated!" });
+    } catch {
+      setStatus({ type: "error", text: "Failed to generate JWT secret" });
+    }
+  };
+
+  if (!loaded) return <div style={styles.card}>Loading...</div>;
+
+  return (
+    <div>
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>User Authentication</div>
+        <p style={{ color: "#6b7280", fontSize: 14, marginBottom: 16 }}>
+          Configure how users authenticate with the chat widget.
+        </p>
+        {status && (
+          <div style={{ ...styles.status, ...(status.type === "success" ? styles.statusSuccess : styles.statusError) }}>
+            {status.text}
+          </div>
+        )}
+        <div style={styles.formGroup}>
+          <label style={styles.label}>Authentication Mode</label>
+          <select
+            style={styles.select}
+            value={config.auth_mode}
+            onChange={(e) => setConfig({ ...config, auth_mode: e.target.value })}
+          >
+            <option value="none">None - Anonymous chat allowed</option>
+            <option value="embedded_only">Embedded Only - Require user context from host site</option>
+            <option value="external_api">External API - Widget shows login form</option>
+          </select>
+        </div>
+
+        {config.auth_mode === "external_api" && (
+          <>
+            <div style={{ background: "#f9fafb", padding: 16, borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, marginBottom: 12 }}>External Login API</div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Login URL</label>
+                <input
+                  style={styles.input}
+                  value={config.login_url}
+                  onChange={(e) => setConfig({ ...config, login_url: e.target.value })}
+                  placeholder="https://your-app.com/api/auth/login"
+                />
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Method</label>
+                  <select
+                    style={styles.select}
+                    value={config.login_method}
+                    onChange={(e) => setConfig({ ...config, login_method: e.target.value })}
+                  >
+                    <option value="POST">POST</option>
+                    <option value="GET">GET</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ background: "#f9fafb", padding: 16, borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, marginBottom: 12 }}>Request Fields</div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Email Field Name</label>
+                  <input
+                    style={styles.input}
+                    value={config.email_field}
+                    onChange={(e) => setConfig({ ...config, email_field: e.target.value })}
+                    placeholder="email"
+                  />
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Password Field Name</label>
+                  <input
+                    style={styles.input}
+                    value={config.password_field}
+                    onChange={(e) => setConfig({ ...config, password_field: e.target.value })}
+                    placeholder="password"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ background: "#f9fafb", padding: 16, borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ fontWeight: 600, marginBottom: 12 }}>Response Mapping (JSON paths)</div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>User ID Path *</label>
+                  <input
+                    style={styles.input}
+                    value={config.response_user_id_path}
+                    onChange={(e) => setConfig({ ...config, response_user_id_path: e.target.value })}
+                    placeholder="user._id"
+                  />
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Token Path</label>
+                  <input
+                    style={styles.input}
+                    value={config.response_token_path}
+                    onChange={(e) => setConfig({ ...config, response_token_path: e.target.value })}
+                    placeholder="token"
+                  />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>User Name Path (optional)</label>
+                  <input
+                    style={styles.input}
+                    value={config.response_name_path}
+                    onChange={(e) => setConfig({ ...config, response_name_path: e.target.value })}
+                    placeholder="user.name"
+                  />
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Email Path (optional)</label>
+                  <input
+                    style={styles.input}
+                    value={config.response_email_path}
+                    onChange={(e) => setConfig({ ...config, response_email_path: e.target.value })}
+                    placeholder="user.email"
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={styles.button} onClick={save}>
+            Save Configuration
+          </button>
+          <button
+            style={{ ...styles.button, background: "#6b7280" }}
+            onClick={generateSecret}
+          >
+            Generate JWT Secret
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>How It Works</div>
+        <div style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.8 }}>
+          <p><strong>None:</strong> Anyone can chat without authentication.</p>
+          <p><strong>Embedded Only:</strong> Widget only works when embedded with user context (data-user-id attribute).</p>
+          <p><strong>External API:</strong> Widget shows login form. Credentials are sent to your API, response is used to identify the user.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Main App ---
 const TABS = [
   { key: "apikeys", label: "API Keys" },
   { key: "llm", label: "LLM Config" },
+  { key: "auth", label: "Authentication" },
   { key: "knowledge", label: "Knowledge Base" },
   { key: "databases", label: "DB Connections" },
   { key: "widget", label: "Widget Settings" },
@@ -1509,6 +1822,7 @@ export default function App() {
 
       {activeTab === "apikeys" && <APIKeysTab activeTenantId={activeTenantId} onTenantChange={handleTenantChange} />}
       {activeTab === "llm" && <LLMConfigTab tenantId={activeTenantId} />}
+      {activeTab === "auth" && <AuthConfigTab tenantId={activeTenantId} />}
       {activeTab === "knowledge" && <KnowledgeBaseTab tenantId={activeTenantId} />}
       {activeTab === "databases" && <DBConnectionsTab tenantId={activeTenantId} />}
       {activeTab === "widget" && <WidgetSettingsTab tenantId={activeTenantId} />}

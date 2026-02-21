@@ -8,17 +8,37 @@ const CHAT_ICON = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><
 const CLOSE_ICON = `\u2715`;
 
 export class ChatWidget {
-  constructor(serverUrl, apiKey, config) {
+  constructor(serverUrl, apiKey, config, userContext, authConfig = null) {
     this.serverUrl = serverUrl;
     this.apiKey = apiKey;
     this.config = config;
+    this.userContext = userContext || {};
+    this.authConfig = authConfig;
+    this.userToken = this._getSavedToken();
     this.isOpen = false;
     this.isStreaming = false;
+    this.isLoggedIn = !!this.userToken || !!userContext.user_id;
     this.sessionId = this._getSessionId();
     this.wsClient = null;
     this.host = null;
     this.shadow = null;
     this.richEditor = null;
+    this.loginFormEl = null;
+    this.chatAreaEl = null;
+  }
+  
+  _getSavedToken() {
+    return localStorage.getItem(`smartchat_token_${this.apiKey}`);
+  }
+  
+  _saveToken(token) {
+    localStorage.setItem(`smartchat_token_${this.apiKey}`, token);
+    this.userToken = token;
+  }
+  
+  _clearToken() {
+    localStorage.removeItem(`smartchat_token_${this.apiKey}`);
+    this.userToken = null;
   }
 
   _getSessionId() {
@@ -67,12 +87,27 @@ export class ChatWidget {
     // Chat window
     const win = document.createElement("div");
     win.className = "sc-window sc-hidden";
+    const logoHtml = this.config.logo_url
+      ? `<img class="sc-logo" src="${this.config.logo_url}" alt="" />`
+      : '';
     win.innerHTML = `
       <div class="sc-header">
-        <span>Chat</span>
+        <div class="sc-header-left">
+          ${logoHtml}
+          <span>Chat</span>
+        </div>
         <button class="sc-close">${CLOSE_ICON}</button>
       </div>
-      <div class="sc-messages"></div>
+      <div class="sc-login-form sc-hidden">
+        <div class="sc-login-title">Sign in to continue</div>
+        <input type="email" class="sc-login-email" placeholder="Email" />
+        <input type="password" class="sc-login-password" placeholder="Password" />
+        <div class="sc-login-error sc-hidden"></div>
+        <button class="sc-login-btn">Sign In</button>
+      </div>
+      <div class="sc-chat-area">
+        <div class="sc-messages"></div>
+      </div>
     `;
 
     // Build input area with rich editor
@@ -91,20 +126,118 @@ export class ChatWidget {
     this.sendBtn.addEventListener("click", () => this._sendMessage());
     inputArea.appendChild(this.sendBtn);
 
-    win.appendChild(inputArea);
+    win.querySelector(".sc-chat-area").appendChild(inputArea);
     this.shadow.appendChild(win);
     this.windowEl = win;
 
     // References
     this.messagesEl = win.querySelector(".sc-messages");
+    this.loginFormEl = win.querySelector(".sc-login-form");
+    this.chatAreaEl = win.querySelector(".sc-chat-area");
     const closeBtn = win.querySelector(".sc-close");
 
     // Events
     closeBtn.addEventListener("click", () => this._toggle());
+    
+    // Login form events
+    const loginBtn = win.querySelector(".sc-login-btn");
+    const emailInput = win.querySelector(".sc-login-email");
+    const passwordInput = win.querySelector(".sc-login-password");
+    
+    loginBtn.addEventListener("click", () => this._handleLogin());
+    passwordInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") this._handleLogin();
+    });
+    
+    // Check if login is required
+    this._checkAuthAndShowUI();
 
     // Show greeting
-    if (this.config.greeting) {
+    if (this.config.greeting && this.isLoggedIn) {
       this._addMessage("assistant", this.config.greeting);
+    }
+  }
+  
+  _checkAuthAndShowUI() {
+    // If user context was passed (embedded mode) or we have a token, show chat
+    if (this.userContext.user_id || this.userToken) {
+      this.isLoggedIn = true;
+      this._showChat();
+      return;
+    }
+    
+    // If auth is required, show login form
+    if (this.authConfig && this.authConfig.requires_login) {
+      this._showLogin();
+    } else {
+      // No auth required, show chat
+      this.isLoggedIn = true;
+      this._showChat();
+    }
+  }
+  
+  _showLogin() {
+    this.loginFormEl.classList.remove("sc-hidden");
+    this.chatAreaEl.classList.add("sc-hidden");
+  }
+  
+  _showChat() {
+    this.loginFormEl.classList.add("sc-hidden");
+    this.chatAreaEl.classList.remove("sc-hidden");
+    if (this.config.greeting && this.messagesEl.children.length === 0) {
+      this._addMessage("assistant", this.config.greeting);
+    }
+  }
+  
+  async _handleLogin() {
+    const emailInput = this.loginFormEl.querySelector(".sc-login-email");
+    const passwordInput = this.loginFormEl.querySelector(".sc-login-password");
+    const errorEl = this.loginFormEl.querySelector(".sc-login-error");
+    const loginBtn = this.loginFormEl.querySelector(".sc-login-btn");
+    
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    
+    if (!email || !password) {
+      errorEl.textContent = "Please enter email and password";
+      errorEl.classList.remove("sc-hidden");
+      return;
+    }
+    
+    loginBtn.disabled = true;
+    loginBtn.textContent = "Signing in...";
+    errorEl.classList.add("sc-hidden");
+    
+    try {
+      const response = await fetch(`${this.serverUrl}/api/auth/login/${this.apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        this._saveToken(data.token);
+        this.userContext.user_id = data.user_id;
+        this.userContext.name = data.user_name;
+        this.userContext.email = data.user_email;
+        this.isLoggedIn = true;
+        this._showChat();
+        
+        // Clear form
+        emailInput.value = "";
+        passwordInput.value = "";
+      } else {
+        errorEl.textContent = data.error || "Login failed";
+        errorEl.classList.remove("sc-hidden");
+      }
+    } catch (err) {
+      errorEl.textContent = "Connection error. Please try again.";
+      errorEl.classList.remove("sc-hidden");
+    } finally {
+      loginBtn.disabled = false;
+      loginBtn.textContent = "Sign In";
     }
   }
 
@@ -174,7 +307,7 @@ export class ChatWidget {
     // Create empty assistant message for streaming
     this._addMessage("assistant", "");
 
-    const sent = this.wsClient.send(markdown, this.apiKey);
+    const sent = this.wsClient.send(markdown, this.apiKey, this.userToken);
     if (!sent) {
       this._appendToLastMessage("Connection error. Please try again.");
       this.isStreaming = false;

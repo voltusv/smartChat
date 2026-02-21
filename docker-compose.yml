@@ -37,5 +37,15 @@ services:
     depends_on:
       - api
 
+  # Uncomment to run Ollama in Docker (or run it on the host instead)
+  # ollama:
+  #   image: ollama/ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   # To pull a model: docker-compose exec ollama ollama pull llama3.2
+
 volumes:
   pgdata:
+  # ollama_data:

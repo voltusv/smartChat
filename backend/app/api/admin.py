@@ -1,13 +1,14 @@
 import uuid
 import secrets
 
+import httpx
 from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db, async_session
-from app.models import Tenant, LLMConfig, KnowledgeSource, DocumentChunk, Conversation, Message, WidgetConfig, DBConnection, Tool
+from app.models import Tenant, LLMConfig, KnowledgeSource, DocumentChunk, Conversation, Message, WidgetConfig, DBConnection, Tool, AuthConfig
 from app.services.db_connector import DBConnector
 from app.services.document_service import DocumentService
 from app.services.embedding_service import EmbeddingService
@@ -184,7 +185,9 @@ async def delete_tenant(tenant_id: str, db: AsyncSession = Depends(get_db)):
 
 
 class LLMConfigUpdate(BaseModel):
+    provider: str | None = None
     api_key: str | None = None
+    base_url: str | None = None
     model: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
@@ -202,9 +205,10 @@ async def get_llm_config(tenant_id: str | None = Query(None), db: AsyncSession =
         return {"configured": False}
     return {
         "configured": True,
-        "provider": config.provider,
+        "provider": config.provider or "openai",
         "api_key_set": bool(config.api_key),
         "api_key_preview": f"...{config.api_key[-4:]}" if config.api_key else None,
+        "base_url": config.base_url,
         "model": config.model,
         "temperature": config.temperature,
         "max_tokens": config.max_tokens,
@@ -226,8 +230,12 @@ async def update_llm_config(
         config = LLMConfig(tenant_id=tenant.id, api_key="")
         db.add(config)
 
+    if body.provider is not None:
+        config.provider = body.provider
     if body.api_key is not None:
         config.api_key = body.api_key
+    if body.base_url is not None:
+        config.base_url = body.base_url if body.base_url else None
     if body.model is not None:
         config.model = body.model
     if body.temperature is not None:
@@ -239,6 +247,22 @@ async def update_llm_config(
 
     await db.commit()
     return {"status": "ok"}
+
+
+@router.get("/llm/ollama-models")
+async def list_ollama_models(base_url: str = Query("http://localhost:11434")):
+    """Fetch available models from an Ollama instance."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{base_url.rstrip('/')}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            models = [m["name"] for m in data.get("models", [])]
+            return {"models": models}
+    except httpx.ConnectError:
+        raise HTTPException(status_code=502, detail=f"Cannot connect to Ollama at {base_url}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ollama error: {str(e)}")
 
 
 # --- Knowledge Base ---
@@ -811,3 +835,127 @@ async def delete_tool(tool_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(delete(Tool).where(Tool.id == tid))
     await db.commit()
     return {"status": "deleted"}
+
+
+# --- Auth Config ---
+
+
+class AuthConfigUpdate(BaseModel):
+    auth_mode: str | None = None  # "none", "embedded_only", "external_api"
+    login_url: str | None = None
+    login_method: str | None = None
+    email_field: str | None = None
+    password_field: str | None = None
+    response_user_id_path: str | None = None
+    response_token_path: str | None = None
+    response_name_path: str | None = None
+    response_email_path: str | None = None
+    extra_headers: dict | None = None
+    jwt_secret: str | None = None
+
+
+@router.get("/auth/config")
+async def get_auth_config(tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)):
+    """Get auth configuration for a tenant."""
+    tenant = await get_tenant(db, tenant_id)
+    result = await db.execute(
+        select(AuthConfig).where(AuthConfig.tenant_id == tenant.id)
+    )
+    config = result.scalar_one_or_none()
+    
+    if not config:
+        return {
+            "configured": False,
+            "auth_mode": "none",
+            "login_url": "",
+            "login_method": "POST",
+            "email_field": "email",
+            "password_field": "password",
+            "response_user_id_path": "user._id",
+            "response_token_path": "token",
+            "response_name_path": "",
+            "response_email_path": "",
+            "extra_headers": {},
+            "jwt_secret_set": False,
+        }
+    
+    return {
+        "configured": True,
+        "auth_mode": config.auth_mode,
+        "login_url": config.login_url or "",
+        "login_method": config.login_method or "POST",
+        "email_field": config.email_field or "email",
+        "password_field": config.password_field or "password",
+        "response_user_id_path": config.response_user_id_path or "user._id",
+        "response_token_path": config.response_token_path or "token",
+        "response_name_path": config.response_name_path or "",
+        "response_email_path": config.response_email_path or "",
+        "extra_headers": config.extra_headers or {},
+        "jwt_secret_set": bool(config.jwt_secret),
+    }
+
+
+@router.put("/auth/config")
+async def update_auth_config(
+    body: AuthConfigUpdate,
+    tenant_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update auth configuration for a tenant."""
+    tenant = await get_tenant(db, tenant_id)
+    result = await db.execute(
+        select(AuthConfig).where(AuthConfig.tenant_id == tenant.id)
+    )
+    config = result.scalar_one_or_none()
+    
+    if not config:
+        config = AuthConfig(tenant_id=tenant.id)
+        db.add(config)
+    
+    if body.auth_mode is not None:
+        config.auth_mode = body.auth_mode
+    if body.login_url is not None:
+        config.login_url = body.login_url
+    if body.login_method is not None:
+        config.login_method = body.login_method
+    if body.email_field is not None:
+        config.email_field = body.email_field
+    if body.password_field is not None:
+        config.password_field = body.password_field
+    if body.response_user_id_path is not None:
+        config.response_user_id_path = body.response_user_id_path
+    if body.response_token_path is not None:
+        config.response_token_path = body.response_token_path
+    if body.response_name_path is not None:
+        config.response_name_path = body.response_name_path
+    if body.response_email_path is not None:
+        config.response_email_path = body.response_email_path
+    if body.extra_headers is not None:
+        config.extra_headers = body.extra_headers
+    if body.jwt_secret is not None:
+        config.jwt_secret = body.jwt_secret
+    
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/auth/generate-secret")
+async def generate_jwt_secret(
+    tenant_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate a new JWT secret for the tenant."""
+    tenant = await get_tenant(db, tenant_id)
+    result = await db.execute(
+        select(AuthConfig).where(AuthConfig.tenant_id == tenant.id)
+    )
+    config = result.scalar_one_or_none()
+    
+    if not config:
+        config = AuthConfig(tenant_id=tenant.id)
+        db.add(config)
+    
+    config.jwt_secret = secrets.token_urlsafe(32)
+    await db.commit()
+    
+    return {"status": "ok", "message": "JWT secret generated"}

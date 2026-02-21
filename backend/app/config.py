@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://smartchat:smartchat_dev@localhost:5432/smartchat"
     openai_api_key: str = ""
+    default_api_key: str = ""  # If set, seed tenant uses this key instead of generating one
 
     # LLM defaults
     default_model: str = "gpt-4o-mini"
