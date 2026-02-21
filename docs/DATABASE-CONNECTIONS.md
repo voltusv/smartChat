@@ -33,9 +33,25 @@ Fill in:
 - **Name**: Human-readable name (e.g., "Production Orders DB")
 - **Description**: What data is here (helps the AI understand context)
 - **Database Type**: postgresql / mysql / mongodb
+
+#### SQL / MySQL / PostgreSQL
 - **Host/Port**: Database server location
 - **Database**: Database name
 - **Username/Password**: Credentials
+
+#### MongoDB
+You can connect using either:
+
+**Option A — Full connection string (recommended)**
+- **Connection String**: e.g.
+  ```
+  mongodb://user:pass@host:27017/dbname?authSource=dbname&retryWrites=true
+  ```
+
+**Option B — Individual fields**
+- **Host/Port/Database/Username/Password**
+
+> Tip: For replica sets that advertise internal hostnames, SmartChat adds `directConnection=true` automatically to improve connectivity.
 
 ### 2. Test the Connection
 
@@ -88,19 +104,9 @@ Now users can ask questions like:
 
 ## Configuration via .env
 
-You can also configure connections via environment variables:
+Currently, DB connections are managed via the **Admin Panel** and stored in SmartChat's Postgres database.
 
-```bash
-# .env
-DB_CONNECTION_1_NAME=Orders Database
-DB_CONNECTION_1_TYPE=postgresql
-DB_CONNECTION_1_HOST=db.example.com
-DB_CONNECTION_1_PORT=5432
-DB_CONNECTION_1_DATABASE=orders
-DB_CONNECTION_1_USERNAME=readonly_user
-DB_CONNECTION_1_PASSWORD=secret
-DB_CONNECTION_1_DESCRIPTION=Customer orders and transactions
-```
+> If you want to support provisioning DB connections via `.env`, we can add a startup seeder, but it’s not implemented in the current code.
 
 ## Schema Information
 

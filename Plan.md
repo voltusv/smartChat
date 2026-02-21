@@ -146,7 +146,7 @@ GET    /api/widget/config/{key}    # Widget fetches its config
 tenants: id, name, embed_api_key, created_at
 
 -- LLM config per tenant
-llm_configs: id, tenant_id, provider, api_key_encrypted, model, temperature, max_tokens, system_prompt
+llm_configs: id, tenant_id, provider, api_key, base_url, model, temperature, max_tokens, system_prompt
 
 -- Knowledge sources
 knowledge_sources: id, tenant_id, filename, source_type, status, chunk_count, created_at
@@ -155,19 +155,25 @@ knowledge_sources: id, tenant_id, filename, source_type, status, chunk_count, cr
 document_chunks: id, source_id, content, metadata_json, embedding vector(1536)
 
 -- DB connections
-db_connections: id, tenant_id, db_type, host, port, database, username, password_encrypted, allowed_schemas
+-- Supports either individual params OR MongoDB connection strings
+-- db_connections: ... host/port/database/username/password/connection_string
+db_connections: id, tenant_id, db_type, host, port, database, username, password, connection_string, schema_info, enabled
 
 -- Tool definitions
 tools: id, tenant_id, name, description, type (db_query|rest_api), config_json
 
 -- Conversations
-conversations: id, tenant_id, session_id, started_at, metadata_json
+-- Includes optional end-user identity (for scoping queries)
+conversations: id, tenant_id, session_id, user_id, user_email, user_name, user_context, started_at, metadata_json
 
 -- Messages
 messages: id, conversation_id, role (user|assistant|system|tool), content, tool_calls_json, tokens_used, created_at
 
 -- Widget config
 widget_configs: id, tenant_id, primary_color, greeting, position, logo_url, allowed_domains
+
+-- Widget auth config (optional)
+auth_configs: id, tenant_id, auth_mode, login_url, login_method, email_field, password_field, response_*_path, extra_headers, jwt_secret
 ```
 
 ---

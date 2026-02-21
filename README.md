@@ -1,20 +1,49 @@
 # SmartChat - Self-Hosted AI Chat Widget
 
-A self-hosted, embeddable AI chat widget with RAG (Retrieval Augmented Generation) capabilities. Think tawk.to but with AI + your own knowledge base.
+A self-hosted, embeddable AI chat widget with RAG (Retrieval Augmented Generation) and optional **business database querying**.
+
+Think **tawk.to**, but with:
+- AI (OpenAI or Ollama)
+- Your own knowledge base (PDF/TXT/CSV)
+- Optional data access (Postgres/MySQL/MongoDB)
+- Optional user authentication (embedded SSO-style or widget login)
+
+---
 
 ## Features
 
-- **Embeddable Chat Widget**: Drop-in `<script>` tag for any website with Shadow DOM isolation
-- **Rich Text Editor**: Toolbar with bold, italic, underline, lists, code, headings, and links
-- **Markdown Rendering**: AI responses rendered as formatted HTML (code blocks, tables, lists, headings)
-- **Real-time Streaming**: WebSocket-based streaming responses with live markdown rendering
-- **RAG Pipeline**: Upload PDFs, TXT, CSV to build your knowledge base
-- **Database Connections**: Connect to PostgreSQL, MySQL, MongoDB and query with natural language
-- **Schema Explorer**: Interactive tree view with search to browse your database tables/collections
-- **AI Function Calling**: Automatic SQL/query generation and execution
-- **Admin Panel**: Configure LLM, manage knowledge base, DB connections, view conversations
-- **Customizable**: Colors, greeting message, position
-- **Multi-tenant Ready**: Architecture supports multiple organizations
+### Widget
+- **Embeddable Chat Widget**: Drop-in `<script>` tag for any website (Shadow DOM isolation)
+- **Rich Text Editor**: Toolbar with formatting (bold, italic, underline, lists, code, headings, links)
+- **Markdown Rendering**: AI responses rendered as HTML (code blocks, tables, lists, headings)
+- **Real-time Streaming**: WebSocket streaming with live incremental rendering
+
+### AI / RAG
+- **LLM Providers**:
+  - **OpenAI** (API key required)
+  - **Ollama / Local OpenAI-compatible** (API key not required; `base_url` supported)
+- **RAG Pipeline**: Upload PDF/TXT/CSV, chunk + embed + retrieve (pgvector)
+
+### External Data (Optional)
+- **Database Connections**: Query business DBs (PostgreSQL, MySQL, MongoDB)
+- **MongoDB connection string support**: Use full URIs for replica sets / auth options
+- **Schema Explorer**: Fetch schema + browse tables/collections
+- **AI Function Calling**: Model can call query tools (SQL/Mongo JSON spec) to retrieve real data
+
+### Authentication (Optional)
+Supports both modes:
+- **Embedded user context** (recommended): host website passes user identity/token to the widget
+- **Widget login** (External API): widget shows email/password form and SmartChat proxies to your existing login API
+
+### Admin Panel
+- Tenants + API keys
+- LLM config (provider/model/base_url)
+- Knowledge base management
+- DB connections + schema fetching
+- Authentication config
+- Conversation history
+
+---
 
 ## Quick Start
 
@@ -22,45 +51,50 @@ A self-hosted, embeddable AI chat widget with RAG (Retrieval Augmented Generatio
 
 ```bash
 cp .env.example .env
-# Edit .env with your OPENAI_API_KEY
+# Edit .env with your settings (OpenAI key optional if using Ollama)
 
-docker-compose up -d
+docker-compose up --build
 ```
 
-That's it. Access:
+Access:
 
-| Service | URL |
-|---------|-----|
-| Admin Panel | http://localhost:3001 |
-| API | http://localhost:8000 |
-| API Docs (Swagger) | http://localhost:8000/docs |
-| Widget Test Page | http://localhost:8000/test.html |
+- **Admin Panel:** http://localhost:3001
+- **API:** http://localhost:8000
+- **API Docs:** http://localhost:8000/docs
+- **Widget Test Page:** http://localhost:8000/test.html
 
-### Local Development (No Docker)
+> Note: SmartChat runs lightweight, idempotent startup migrations (adds new columns/tables) so older Docker volumes don’t break when you pull new code.
 
-#### Prerequisites
+---
 
+## Local Development (No Docker)
+
+### Prerequisites
 - Python 3.10+
 - Node.js 18+
-- PostgreSQL 14+ with pgvector extension
+- PostgreSQL 14+ with extensions:
+  - `vector` (pgvector)
+  - `pgcrypto` (UUID helpers)
 
-#### 1. Setup Database
+### 1) Setup Database
 
 ```bash
 psql -h localhost -c "CREATE DATABASE smartchat;"
 psql -h localhost -d smartchat -c "CREATE EXTENSION IF NOT EXISTS vector;"
+psql -h localhost -d smartchat -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
 ```
 
-#### 2. Configure Environment
+### 2) Configure Environment
 
 ```bash
 cp .env.example .env
-# Edit .env with your settings:
+# Edit .env:
 # - DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/smartchat
-# - OPENAI_API_KEY=sk-your-key-here
+# - OPENAI_API_KEY=... (optional if using Ollama)
+# - DEFAULT_API_KEY=... (optional)
 ```
 
-#### 3. Install & Run Backend
+### 3) Run Backend
 
 ```bash
 cd backend
@@ -70,7 +104,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-#### 4. Install & Run Admin Panel
+### 4) Run Admin Panel
 
 ```bash
 cd admin
@@ -78,7 +112,7 @@ npm install
 npm run dev
 ```
 
-#### 5. Build Widget
+### 5) Build Widget Bundle
 
 ```bash
 cd widget
@@ -86,98 +120,140 @@ npm install
 npm run build
 ```
 
-#### Or use the helper script:
+Or:
 
 ```bash
 ./start-local.sh
 ```
 
-| Service | URL |
-|---------|-----|
-| Admin Panel | http://localhost:5173 |
-| API | http://localhost:8000 |
-| API Docs (Swagger) | http://localhost:8000/docs |
-| Widget Test Page | http://localhost:8000/test.html |
+Local URLs:
+- Admin: http://localhost:5173
+- API: http://localhost:8000
+- Test page: http://localhost:8000/test.html
+
+---
 
 ## Usage
 
-### Embed the Widget
+### 1) Get an API Key
 
-Add this to any webpage:
+- Docker Admin: http://localhost:3001
+- Local Admin: http://localhost:5173
+
+Go to **API Keys** and create a tenant. You only see the full key once (on creation).
+
+Also, you can set a dev default key in `.env`:
+
+```env
+DEFAULT_API_KEY=test-key-123
+```
+
+### 2) Embed the Widget
 
 ```html
-<script src="http://localhost:8000/widget.js"
-        data-api-key="test-key-123"></script>
+<script
+  src="http://localhost:8000/widget.js"
+  data-api-key="YOUR_TENANT_API_KEY">
+</script>
 ```
 
-The widget features:
-- Rich text input with formatting toolbar
-- AI responses with full markdown rendering (code blocks, tables, lists)
-- Real-time streaming via WebSocket
-- Shadow DOM isolation (no style conflicts with your site)
+### 3) (Optional) Embedded User Context
 
-### Upload Knowledge Base
+If the user is already logged into your site, pass identity to the widget:
 
-1. Go to Admin Panel → Knowledge Base
-2. Upload PDF, TXT, or CSV files
-3. Wait for processing (status: "ready")
-4. The AI will now use this knowledge to answer questions
-
-### Configure LLM
-
-1. Go to Admin Panel → LLM Config
-2. Enter your OpenAI API key
-3. Choose model, temperature, max tokens
-4. Customize the system prompt
-
-### Connect Your Database
-
-1. Go to Admin Panel → DB Connections
-2. Add your PostgreSQL/MySQL/MongoDB connection (individual params or connection string)
-3. Click **Test** to verify connectivity
-4. Click **Schema** to auto-discover tables/collections
-5. Browse the interactive schema tree view with search
-6. The AI can now answer questions about your data!
-
-Example questions the AI can now answer:
-- "How many orders did we have last week?"
-- "What's our top-selling product?"
-- "Show me customers who signed up this month"
-
-See [docs/DATABASE-CONNECTIONS.md](docs/DATABASE-CONNECTIONS.md) for full documentation.
-
-### Customize Widget
-
-1. Go to Admin Panel → Widget Settings
-2. Change colors, greeting, position
-3. Copy embed code
-
-## Architecture
-
+```html
+<script
+  src="http://localhost:8000/widget.js"
+  data-api-key="YOUR_TENANT_API_KEY"
+  data-user-id="12345"
+  data-user-name="John Doe"
+  data-user-email="john@example.com">
+</script>
 ```
-┌─────────────────────────────────────┐
-│         Customer's Website          │
-│  ┌───────────────────────────────┐  │
-│  │   Chat Widget (Shadow DOM)    │  │
-│  │  - Rich text editor           │  │
-│  │  - Markdown rendering         │  │
-│  │  - DOMPurify sanitization     │  │
-│  └──────────────┬────────────────┘  │
-└─────────────────┼───────────────────┘
-                  │ WebSocket
-                  ▼
-┌─────────────────────────────────────┐
-│        FastAPI Backend              │
-│  - WebSocket real-time chat         │
-│  - RAG pipeline (embed → retrieve)  │
-│  - LLM proxy (OpenAI)               │
-│  - DB connector (PG/MySQL/MongoDB)  │
-│  ┌───────────┐  ┌────────────────┐  │
-│  │ pgvector  │  │   PostgreSQL   │  │
-│  │(embeddings)│  │ (conversations)│  │
-│  └───────────┘  └────────────────┘  │
-└─────────────────────────────────────┘
-```
+
+This makes it possible to scope data access (e.g., "only show this user's transactions").
+
+### 4) (Optional) Widget Login (External API)
+
+If you want the widget to ask for credentials when the user is *not* logged in:
+
+1. Go to **Admin → Authentication**
+2. Set mode to **External API**
+3. Configure:
+   - Login URL
+   - Request field names (email/password)
+   - Response JSON paths (user id, token, optional name/email)
+
+Widget flow:
+- Widget loads → `/api/auth/config/{api_key}`
+- If login required → shows login form
+- Submits to → `/api/auth/login/{api_key}`
+- Backend proxies to your login URL and returns a SmartChat JWT
+- Widget sends `user_token` over WebSocket for identification
+
+### 5) Configure LLM Provider
+
+Admin → **LLM Config**
+
+- **OpenAI**: set API key
+- **Ollama**: set provider to `ollama` and optional base URL
+
+### 6) Knowledge Base (RAG)
+
+Admin → **Knowledge Base**
+
+- Upload PDFs/TXT/CSV
+- Wait until status is `ready`
+
+### 7) External DB Connections (Optional)
+
+Admin → **DB Connections**
+
+Add a DB connection to let the AI run real queries.
+
+- SQL databases: only `SELECT` is allowed (safety)
+- MongoDB: JSON query spec
+- MongoDB supports either:
+  - host/port/user/pass
+  - OR a full **connection string** (recommended for replica sets)
+
+---
+
+## API Endpoints (High Level)
+
+### Chat
+- `WS /api/chat/ws/chat/{session_id}`
+  - payload supports `{ message, api_key, user_token? }`
+- `GET /api/chat/history/{session_id}`
+
+### Admin
+- Tenants / API Keys:
+  - `GET /api/admin/tenants`
+  - `POST /api/admin/tenants`
+- LLM:
+  - `GET/PUT /api/admin/llm/config`
+- Auth:
+  - `GET/PUT /api/admin/auth/config`
+  - `POST /api/admin/auth/generate-secret`
+- Knowledge:
+  - `GET /api/admin/knowledge`
+  - `POST /api/admin/knowledge/upload`
+- DB Connections:
+  - `GET/POST/PUT/DELETE /api/admin/db-connections`
+  - `POST /api/admin/db-connections/{id}/test`
+  - `POST /api/admin/db-connections/{id}/fetch-schema`
+- Widget:
+  - `GET/PUT /api/admin/widget/config`
+
+### Widget/Auth (public)
+- `GET /widget.js`
+- `GET /api/widget/config/{api_key}`
+- `GET /api/auth/config/{api_key}`
+- `POST /api/auth/login/{api_key}`
+- `POST /api/auth/verify/{api_key}`
+- `GET /test.html`
+
+---
 
 ## Project Structure
 
@@ -186,91 +262,41 @@ smartChat/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
-│   │   │   ├── admin.py          # Admin endpoints
-│   │   │   ├── chat.py           # Chat WebSocket
-│   │   │   └── widget.py         # Widget config & test page
+│   │   │   ├── admin.py
+│   │   │   ├── auth.py
+│   │   │   ├── chat.py
+│   │   │   └── widget.py
 │   │   ├── services/
-│   │   │   ├── llm_service.py    # OpenAI integration
-│   │   │   ├── rag_service.py    # RAG pipeline
+│   │   │   ├── llm_service.py
+│   │   │   ├── rag_service.py
 │   │   │   ├── embedding_service.py
 │   │   │   ├── document_service.py
-│   │   │   ├── db_connector.py   # External DB connections
-│   │   │   └── tool_executor.py  # AI function calling
+│   │   │   ├── db_connector.py
+│   │   │   └── tool_executor.py
 │   │   ├── models/
-│   │   │   └── models.py         # SQLAlchemy models
+│   │   │   ├── models.py
+│   │   │   └── __init__.py
 │   │   ├── main.py
 │   │   └── config.py
 │   ├── static/
-│   │   ├── widget/widget.js      # Built widget bundle
-│   │   └── test.html             # Widget test page
+│   │   └── widget/widget.js
 │   └── requirements.txt
 ├── admin/
-│   ├── src/
-│   │   └── App.jsx               # React admin panel
-│   └── package.json
 ├── widget/
-│   ├── src/
-│   │   ├── widget.js             # Entry point
-│   │   ├── chat-ui.js            # Chat UI & message rendering
-│   │   ├── rich-editor.js        # Rich text editor with toolbar
-│   │   ├── markdown-renderer.js  # Markdown → sanitized HTML
-│   │   ├── html-to-markdown.js   # Editor HTML → markdown
-│   │   ├── websocket-client.js   # WebSocket client
-│   │   └── styles.css            # Widget styles
-│   └── package.json
 ├── docker-compose.yml
 ├── start-local.sh
 ├── .env.example
 └── test.html
 ```
 
-## API Endpoints
+---
 
-### Chat
-- `WS /api/chat/ws/chat/{session_id}` - Real-time chat
-- `GET /api/chat/history/{session_id}` - Chat history
+## Notes / Gotchas
 
-### Admin
-- `GET/PUT /api/admin/llm/config` - LLM configuration
-- `GET/POST/DELETE /api/admin/knowledge/*` - Knowledge base
-- `GET/POST/PUT/DELETE /api/admin/db-connections/*` - Database connections
-- `POST /api/admin/db-connections/{id}/test` - Test connection
-- `POST /api/admin/db-connections/{id}/fetch-schema` - Fetch schema
-- `GET /api/admin/conversations` - List conversations
-- `GET/PUT /api/admin/widget/config` - Widget settings
+- **`create_all()` doesn’t alter existing tables.** SmartChat includes lightweight startup migrations to add new columns/tables safely.
+- The chat can still “answer” without external DB connections (pure LLM). If you need hard guarantees (no guessing), add guardrails.
 
-### Widget
-- `GET /widget.js` - Widget bundle
-- `GET /api/widget/config/{api_key}` - Widget config
-- `GET /test.html` - Widget test page
-
-## Docker Deployment
-
-```bash
-docker-compose up -d
-```
-
-Services:
-- `db`: PostgreSQL with pgvector (port 5432)
-- `api`: FastAPI backend (port 8000)
-- `admin`: React admin panel (port 3001)
-
-## Tech Stack
-
-- **Backend**: Python, FastAPI, SQLAlchemy, pgvector, OpenAI
-- **Admin Panel**: React, Vite
-- **Widget**: Vanilla JS, Shadow DOM, esbuild, marked, DOMPurify
-- **Database**: PostgreSQL with pgvector extension
-- **External DBs**: PostgreSQL, MySQL (aiomysql), MongoDB (motor)
-
-## Roadmap
-
-- [x] Multi-tenant authentication
-- [x] Ollama/local LLM support
-- [ ] Human handoff to live agents
-- [ ] Webhooks for external integrations
-- [ ] Analytics dashboard
-- [ ] Fine-tuning pipeline
+---
 
 ## License
 
