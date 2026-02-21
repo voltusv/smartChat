@@ -1,6 +1,7 @@
 import uuid
+import secrets
 
-from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,18 +15,169 @@ from app.config import settings
 
 router = APIRouter()
 
-# For MVP: use the first tenant
-DEFAULT_TENANT_KEY = "test-key-123"
+
+def generate_api_key() -> str:
+    """Generate a secure API key with sc_live_ prefix."""
+    return "sc_live_" + secrets.token_urlsafe(32)
 
 
-async def get_default_tenant(db: AsyncSession) -> Tenant:
+async def get_tenant(db: AsyncSession, tenant_id: str | None = None) -> Tenant:
+    """Get tenant by ID, or fall back to the first tenant."""
+    if tenant_id:
+        result = await db.execute(
+            select(Tenant).where(Tenant.id == uuid.UUID(tenant_id))
+        )
+        tenant = result.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+        return tenant
+
+    # Fallback: first tenant by creation date
     result = await db.execute(
-        select(Tenant).where(Tenant.embed_api_key == DEFAULT_TENANT_KEY)
+        select(Tenant).order_by(Tenant.created_at.asc()).limit(1)
     )
     tenant = result.scalar_one_or_none()
     if not tenant:
-        raise HTTPException(status_code=500, detail="Default tenant not found")
+        raise HTTPException(status_code=500, detail="No tenants found")
     return tenant
+
+
+# --- Tenants ---
+
+
+class TenantCreate(BaseModel):
+    name: str
+
+
+class TenantUpdate(BaseModel):
+    name: str
+
+
+@router.get("/tenants")
+async def list_tenants(db: AsyncSession = Depends(get_db)):
+    """List all tenants with masked API keys."""
+    result = await db.execute(
+        select(Tenant).order_by(Tenant.created_at.asc())
+    )
+    tenants = result.scalars().all()
+    return {
+        "tenants": [
+            {
+                "id": str(t.id),
+                "name": t.name,
+                "api_key_preview": t.embed_api_key[:12] + "..." + t.embed_api_key[-4:] if len(t.embed_api_key) > 16 else "****",
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in tenants
+        ]
+    }
+
+
+@router.post("/tenants")
+async def create_tenant(body: TenantCreate, db: AsyncSession = Depends(get_db)):
+    """Create a new tenant with auto-generated API key."""
+    api_key = generate_api_key()
+
+    tenant = Tenant(name=body.name, embed_api_key=api_key)
+    db.add(tenant)
+    await db.commit()
+    await db.refresh(tenant)
+
+    # Seed default LLM config
+    llm_config = LLMConfig(
+        tenant_id=tenant.id,
+        provider="openai",
+        api_key=settings.openai_api_key,
+        model=settings.default_model,
+        temperature=settings.default_temperature,
+        max_tokens=settings.default_max_tokens,
+        system_prompt=settings.default_system_prompt,
+    )
+    db.add(llm_config)
+
+    # Seed default widget config
+    widget_config = WidgetConfig(
+        tenant_id=tenant.id,
+        primary_color="#4F46E5",
+        greeting="Hi! How can I help you?",
+        position="bottom-right",
+    )
+    db.add(widget_config)
+    await db.commit()
+
+    return {
+        "id": str(tenant.id),
+        "name": tenant.name,
+        "api_key": api_key,  # Return full key only on creation
+        "created_at": tenant.created_at.isoformat() if tenant.created_at else None,
+    }
+
+
+@router.put("/tenants/{tenant_id}")
+async def update_tenant(tenant_id: str, body: TenantUpdate, db: AsyncSession = Depends(get_db)):
+    """Update tenant name."""
+    tid = uuid.UUID(tenant_id)
+    result = await db.execute(select(Tenant).where(Tenant.id == tid))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    tenant.name = body.name
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/tenants/{tenant_id}/regenerate-key")
+async def regenerate_tenant_key(tenant_id: str, db: AsyncSession = Depends(get_db)):
+    """Regenerate the API key for a tenant. Returns the new key once."""
+    tid = uuid.UUID(tenant_id)
+    result = await db.execute(select(Tenant).where(Tenant.id == tid))
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    new_key = generate_api_key()
+    tenant.embed_api_key = new_key
+    await db.commit()
+
+    return {"api_key": new_key}
+
+
+@router.delete("/tenants/{tenant_id}")
+async def delete_tenant(tenant_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a tenant and all associated data."""
+    tid = uuid.UUID(tenant_id)
+
+    # Check it's not the last tenant
+    count_result = await db.execute(select(func.count(Tenant.id)))
+    count = count_result.scalar()
+    if count <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last tenant")
+
+    # Delete associated configs
+    await db.execute(delete(WidgetConfig).where(WidgetConfig.tenant_id == tid))
+    await db.execute(delete(LLMConfig).where(LLMConfig.tenant_id == tid))
+    await db.execute(delete(Tool).where(Tool.tenant_id == tid))
+    await db.execute(delete(DBConnection).where(DBConnection.tenant_id == tid))
+    # Delete knowledge chunks then sources
+    source_ids = await db.execute(
+        select(KnowledgeSource.id).where(KnowledgeSource.tenant_id == tid)
+    )
+    for (sid,) in source_ids:
+        await db.execute(delete(DocumentChunk).where(DocumentChunk.source_id == sid))
+    await db.execute(delete(KnowledgeSource).where(KnowledgeSource.tenant_id == tid))
+    # Delete conversations
+    conv_ids = await db.execute(
+        select(Conversation.id).where(Conversation.tenant_id == tid)
+    )
+    for (cid,) in conv_ids:
+        await db.execute(delete(Message).where(Message.conversation_id == cid))
+    await db.execute(delete(Conversation).where(Conversation.tenant_id == tid))
+    # Delete tenant
+    await db.execute(delete(Tenant).where(Tenant.id == tid))
+    await db.commit()
+
+    return {"status": "deleted"}
 
 
 # --- LLM Config ---
@@ -40,8 +192,8 @@ class LLMConfigUpdate(BaseModel):
 
 
 @router.get("/llm/config")
-async def get_llm_config(db: AsyncSession = Depends(get_db)):
-    tenant = await get_default_tenant(db)
+async def get_llm_config(tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)):
+    tenant = await get_tenant(db, tenant_id)
     result = await db.execute(
         select(LLMConfig).where(LLMConfig.tenant_id == tenant.id)
     )
@@ -62,9 +214,9 @@ async def get_llm_config(db: AsyncSession = Depends(get_db)):
 
 @router.put("/llm/config")
 async def update_llm_config(
-    body: LLMConfigUpdate, db: AsyncSession = Depends(get_db)
+    body: LLMConfigUpdate, tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)
 ):
-    tenant = await get_default_tenant(db)
+    tenant = await get_tenant(db, tenant_id)
     result = await db.execute(
         select(LLMConfig).where(LLMConfig.tenant_id == tenant.id)
     )
@@ -160,9 +312,10 @@ async def process_document(source_id: uuid.UUID, file_bytes: bytes, filename: st
 async def upload_knowledge(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    tenant_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    tenant = await get_default_tenant(db)
+    tenant = await get_tenant(db, tenant_id)
     file_bytes = await file.read()
     filename = file.filename or "unknown"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -190,8 +343,8 @@ async def upload_knowledge(
 
 
 @router.get("/knowledge")
-async def list_knowledge(db: AsyncSession = Depends(get_db)):
-    tenant = await get_default_tenant(db)
+async def list_knowledge(tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)):
+    tenant = await get_tenant(db, tenant_id)
     result = await db.execute(
         select(KnowledgeSource)
         .where(KnowledgeSource.tenant_id == tenant.id)
@@ -232,8 +385,8 @@ async def delete_knowledge(source_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/conversations")
-async def list_conversations(db: AsyncSession = Depends(get_db)):
-    tenant = await get_default_tenant(db)
+async def list_conversations(tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)):
+    tenant = await get_tenant(db, tenant_id)
 
     # Get conversations with message count
     stmt = (
@@ -299,8 +452,8 @@ class WidgetConfigUpdate(BaseModel):
 
 
 @router.get("/widget/config")
-async def get_widget_settings(db: AsyncSession = Depends(get_db)):
-    tenant = await get_default_tenant(db)
+async def get_widget_settings(tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)):
+    tenant = await get_tenant(db, tenant_id)
     result = await db.execute(
         select(WidgetConfig).where(WidgetConfig.tenant_id == tenant.id)
     )
@@ -324,9 +477,9 @@ async def get_widget_settings(db: AsyncSession = Depends(get_db)):
 
 @router.put("/widget/config")
 async def update_widget_settings(
-    body: WidgetConfigUpdate, db: AsyncSession = Depends(get_db)
+    body: WidgetConfigUpdate, tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)
 ):
-    tenant = await get_default_tenant(db)
+    tenant = await get_tenant(db, tenant_id)
     result = await db.execute(
         select(WidgetConfig).where(WidgetConfig.tenant_id == tenant.id)
     )
@@ -382,9 +535,9 @@ class DBConnectionUpdate(BaseModel):
 
 
 @router.get("/db-connections")
-async def list_db_connections(db: AsyncSession = Depends(get_db)):
+async def list_db_connections(tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)):
     """List all database connections."""
-    tenant = await get_default_tenant(db)
+    tenant = await get_tenant(db, tenant_id)
     result = await db.execute(
         select(DBConnection)
         .where(DBConnection.tenant_id == tenant.id)
@@ -414,10 +567,10 @@ async def list_db_connections(db: AsyncSession = Depends(get_db)):
 
 @router.post("/db-connections")
 async def create_db_connection(
-    body: DBConnectionCreate, db: AsyncSession = Depends(get_db)
+    body: DBConnectionCreate, tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)
 ):
     """Create a new database connection."""
-    tenant = await get_default_tenant(db)
+    tenant = await get_tenant(db, tenant_id)
     
     # Validate: need either connection_string OR individual params
     if not body.connection_string and not (body.host and body.port and body.database):
@@ -576,9 +729,9 @@ class ToolUpdate(BaseModel):
 
 
 @router.get("/tools")
-async def list_tools(db: AsyncSession = Depends(get_db)):
+async def list_tools(tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)):
     """List all custom tools."""
-    tenant = await get_default_tenant(db)
+    tenant = await get_tenant(db, tenant_id)
     result = await db.execute(
         select(Tool)
         .where(Tool.tenant_id == tenant.id)
@@ -603,9 +756,9 @@ async def list_tools(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/tools")
-async def create_tool(body: ToolCreate, db: AsyncSession = Depends(get_db)):
+async def create_tool(body: ToolCreate, tenant_id: str | None = Query(None), db: AsyncSession = Depends(get_db)):
     """Create a new tool."""
-    tenant = await get_default_tenant(db)
+    tenant = await get_tenant(db, tenant_id)
     
     tool = Tool(
         tenant_id=tenant.id,

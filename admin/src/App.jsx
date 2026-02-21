@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback } from "react";
 
 const API_BASE = "/api/admin";
 
+function tenantQuery(tenantId) {
+  return tenantId ? `?tenant_id=${tenantId}` : "";
+}
+
 const styles = {
   app: {
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
@@ -169,7 +173,7 @@ const styles = {
 };
 
 // --- LLM Config Tab ---
-function LLMConfigTab() {
+function LLMConfigTab({ tenantId }) {
   const [config, setConfig] = useState({
     api_key: "",
     model: "gpt-4o-mini",
@@ -181,7 +185,7 @@ function LLMConfigTab() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/llm/config`)
+    fetch(`${API_BASE}/llm/config${tenantQuery(tenantId)}`)
       .then((r) => r.json())
       .then((data) => {
         if (data.configured) {
@@ -196,14 +200,14 @@ function LLMConfigTab() {
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, []);
+  }, [tenantId]);
 
   const save = async () => {
     setStatus(null);
     try {
       const body = { ...config };
       if (!body.api_key) delete body.api_key; // don't overwrite with empty
-      const res = await fetch(`${API_BASE}/llm/config`, {
+      const res = await fetch(`${API_BASE}/llm/config${tenantQuery(tenantId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -285,20 +289,20 @@ function LLMConfigTab() {
 }
 
 // --- Knowledge Base Tab ---
-function KnowledgeBaseTab() {
+function KnowledgeBaseTab({ tenantId }) {
   const [sources, setSources] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState(null);
 
   const loadSources = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/knowledge`);
+      const res = await fetch(`${API_BASE}/knowledge${tenantQuery(tenantId)}`);
       const data = await res.json();
       setSources(data.sources || []);
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     loadSources();
@@ -312,7 +316,7 @@ function KnowledgeBaseTab() {
     const formData = new FormData();
     formData.append("file", file);
     try {
-      const res = await fetch(`${API_BASE}/knowledge/upload`, {
+      const res = await fetch(`${API_BASE}/knowledge/upload${tenantQuery(tenantId)}`, {
         method: "POST",
         body: formData,
       });
@@ -422,17 +426,17 @@ function KnowledgeBaseTab() {
 }
 
 // --- Conversations Tab ---
-function ConversationsTab() {
+function ConversationsTab({ tenantId }) {
   const [conversations, setConversations] = useState([]);
   const [selectedConv, setSelectedConv] = useState(null);
   const [messages, setMessages] = useState([]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/conversations`)
+    fetch(`${API_BASE}/conversations${tenantQuery(tenantId)}`)
       .then((r) => r.json())
       .then((data) => setConversations(data.conversations || []))
       .catch(() => {});
-  }, []);
+  }, [tenantId]);
 
   const viewMessages = async (conv) => {
     setSelectedConv(conv);
@@ -520,7 +524,7 @@ function ConversationsTab() {
 }
 
 // --- Widget Settings Tab ---
-function WidgetSettingsTab() {
+function WidgetSettingsTab({ tenantId }) {
   const [config, setConfig] = useState({
     primary_color: "#4F46E5",
     greeting: "Hi! How can I help you?",
@@ -532,7 +536,7 @@ function WidgetSettingsTab() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/widget/config`)
+    fetch(`${API_BASE}/widget/config${tenantQuery(tenantId)}`)
       .then((r) => r.json())
       .then((data) => {
         setConfig({
@@ -545,12 +549,12 @@ function WidgetSettingsTab() {
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, []);
+  }, [tenantId]);
 
   const save = async () => {
     setStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/widget/config`, {
+      const res = await fetch(`${API_BASE}/widget/config${tenantQuery(tenantId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
@@ -660,7 +664,7 @@ function WidgetSettingsTab() {
           Open the test page to see the widget in action:
         </p>
         <a
-          href="/test.html"
+          href={`${window.location.protocol}//${window.location.hostname}:8000/test.html`}
           target="_blank"
           style={{ ...styles.button, textDecoration: "none", display: "inline-block" }}
         >
@@ -672,7 +676,7 @@ function WidgetSettingsTab() {
 }
 
 // --- Database Connections Tab ---
-function DBConnectionsTab() {
+function DBConnectionsTab({ tenantId }) {
   const [connections, setConnections] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingConn, setEditingConn] = useState(null);
@@ -725,11 +729,11 @@ function DBConnectionsTab() {
 
   const loadConnections = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/db-connections`);
+      const res = await fetch(`${API_BASE}/db-connections${tenantQuery(tenantId)}`);
       const data = await res.json();
       setConnections(data.connections || []);
     } catch {}
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     loadConnections();
@@ -759,7 +763,7 @@ function DBConnectionsTab() {
       const method = editingConn ? "PUT" : "POST";
       const url = editingConn
         ? `${API_BASE}/db-connections/${editingConn.id}`
-        : `${API_BASE}/db-connections`;
+        : `${API_BASE}/db-connections${tenantQuery(tenantId)}`;
 
       // Build payload based on connection mode
       const payload = {
@@ -1216,8 +1220,238 @@ function DBConnectionsTab() {
   );
 }
 
+// --- API Keys Tab ---
+function APIKeysTab({ activeTenantId, onTenantChange }) {
+  const [tenants, setTenants] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [status, setStatus] = useState(null);
+  const [revealedKey, setRevealedKey] = useState(null); // { id, key }
+
+  const loadTenants = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/tenants`);
+      const data = await res.json();
+      setTenants(data.tenants || []);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadTenants();
+  }, [loadTenants]);
+
+  const createTenant = async () => {
+    if (!newName.trim()) return;
+    setStatus(null);
+    try {
+      const res = await fetch(`${API_BASE}/tenants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      if (!res.ok) throw new Error("Failed to create tenant");
+      const data = await res.json();
+      setRevealedKey({ id: data.id, key: data.api_key });
+      setStatus({ type: "success", text: `Tenant "${newName}" created! Copy the API key below — it won't be shown again.` });
+      setNewName("");
+      setShowCreate(false);
+      loadTenants();
+    } catch (e) {
+      setStatus({ type: "error", text: e.message });
+    }
+  };
+
+  const regenerateKey = async (tenantId, tenantName) => {
+    if (!confirm(`Regenerate API key for "${tenantName}"? The old key will stop working immediately.`)) return;
+    setStatus(null);
+    try {
+      const res = await fetch(`${API_BASE}/tenants/${tenantId}/regenerate-key`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to regenerate key");
+      const data = await res.json();
+      setRevealedKey({ id: tenantId, key: data.api_key });
+      setStatus({ type: "success", text: `New API key generated for "${tenantName}". Copy it below — it won't be shown again.` });
+      loadTenants();
+    } catch (e) {
+      setStatus({ type: "error", text: e.message });
+    }
+  };
+
+  const deleteTenant = async (tenantId, tenantName) => {
+    if (!confirm(`Delete tenant "${tenantName}" and ALL associated data (configs, conversations, knowledge base)? This cannot be undone.`)) return;
+    setStatus(null);
+    try {
+      const res = await fetch(`${API_BASE}/tenants/${tenantId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to delete");
+      }
+      setStatus({ type: "success", text: `Tenant "${tenantName}" deleted.` });
+      if (activeTenantId === tenantId && tenants.length > 1) {
+        const remaining = tenants.find((t) => t.id !== tenantId);
+        if (remaining) onTenantChange(remaining.id);
+      }
+      loadTenants();
+    } catch (e) {
+      setStatus({ type: "error", text: e.message });
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    setStatus({ type: "success", text: "Copied to clipboard!" });
+  };
+
+  const getEmbedCode = (apiKey) => {
+    return `<script src="${window.location.protocol}//${window.location.hostname}:8000/widget.js" data-api-key="${apiKey}"></script>`;
+  };
+
+  return (
+    <div>
+      {status && (
+        <div style={{ ...styles.status, ...(status.type === "success" ? styles.statusSuccess : styles.statusError), marginBottom: 16 }}>
+          {status.text}
+        </div>
+      )}
+
+      {revealedKey && (
+        <div style={{ ...styles.card, background: "#fffbeb", borderColor: "#f59e0b" }}>
+          <div style={{ ...styles.cardTitle, color: "#92400e" }}>New API Key (save it now!)</div>
+          <div style={{
+            background: "#1f2937",
+            color: "#10b981",
+            padding: 12,
+            borderRadius: 6,
+            fontFamily: "'SF Mono', Monaco, monospace",
+            fontSize: 13,
+            marginBottom: 12,
+            wordBreak: "break-all",
+          }}>
+            {revealedKey.key}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={styles.button} onClick={() => copyToClipboard(revealedKey.key)}>
+              Copy Key
+            </button>
+            <button style={styles.button} onClick={() => copyToClipboard(getEmbedCode(revealedKey.key))}>
+              Copy Embed Code
+            </button>
+            <button
+              style={{ ...styles.button, background: "#6b7280" }}
+              onClick={() => setRevealedKey(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={styles.cardTitle}>API Keys & Tenants ({tenants.length})</div>
+          <button style={styles.button} onClick={() => setShowCreate(true)}>
+            + Create Tenant
+          </button>
+        </div>
+
+        {showCreate && (
+          <div style={{ background: "#f9fafb", padding: 16, borderRadius: 8, marginBottom: 16, border: "1px solid #e5e7eb" }}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Tenant Name</label>
+              <input
+                style={styles.input}
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g., My Website, Client Name"
+                onKeyDown={(e) => e.key === "Enter" && createTenant()}
+                autoFocus
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={styles.button} onClick={createTenant}>Create</button>
+              <button style={{ ...styles.button, background: "#6b7280" }} onClick={() => { setShowCreate(false); setNewName(""); }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {tenants.length === 0 ? (
+          <div style={{ color: "#9ca3af", fontSize: 14 }}>No tenants found. Create one to get started.</div>
+        ) : (
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Name</th>
+                <th style={styles.th}>API Key</th>
+                <th style={styles.th}>Created</th>
+                <th style={styles.th}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tenants.map((t) => (
+                <tr key={t.id} style={activeTenantId === t.id ? { background: "#eff6ff" } : {}}>
+                  <td style={styles.td}>
+                    <strong>{t.name}</strong>
+                    {activeTenantId === t.id && (
+                      <span style={{ ...styles.badge, ...styles.badgeReady, marginLeft: 8 }}>active</span>
+                    )}
+                  </td>
+                  <td style={styles.td}>
+                    <code style={{ fontSize: 12, color: "#6b7280" }}>{t.api_key_preview}</code>
+                    <button
+                      style={{ marginLeft: 8, background: "none", border: "1px solid #d1d5db", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 11 }}
+                      onClick={() => copyToClipboard(t.api_key_preview)}
+                      title="Only the masked preview is available. Regenerate to get a new full key."
+                    >
+                      Copy
+                    </button>
+                  </td>
+                  <td style={styles.td}>{t.created_at ? new Date(t.created_at).toLocaleDateString() : "-"}</td>
+                  <td style={styles.td}>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {activeTenantId !== t.id && (
+                        <button
+                          style={{ ...styles.button, padding: "4px 8px", fontSize: 12, background: "#10b981" }}
+                          onClick={() => onTenantChange(t.id)}
+                        >
+                          Set Active
+                        </button>
+                      )}
+                      <button
+                        style={{ ...styles.button, padding: "4px 8px", fontSize: 12, background: "#f59e0b" }}
+                        onClick={() => regenerateKey(t.id, t.name)}
+                      >
+                        Regenerate
+                      </button>
+                      <button
+                        style={{ ...styles.buttonDanger, padding: "4px 8px", fontSize: 12 }}
+                        onClick={() => deleteTenant(t.id, t.name)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.cardTitle}>How API Keys Work</div>
+        <ul style={{ paddingLeft: 20, color: "#4b5563", fontSize: 14, lineHeight: 1.8 }}>
+          <li>Each <strong>tenant</strong> gets its own API key, LLM config, knowledge base, and widget settings</li>
+          <li>Use the <strong>API key</strong> in the widget embed code on your website</li>
+          <li>The <strong>active tenant</strong> is the one you manage in the other tabs (LLM Config, Knowledge Base, etc.)</li>
+          <li><strong>Regenerating</strong> a key invalidates the old one immediately — update your embed code</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 // --- Main App ---
 const TABS = [
+  { key: "apikeys", label: "API Keys" },
   { key: "llm", label: "LLM Config" },
   { key: "knowledge", label: "Knowledge Base" },
   { key: "databases", label: "DB Connections" },
@@ -1226,7 +1460,30 @@ const TABS = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("llm");
+  const [activeTab, setActiveTab] = useState("apikeys");
+  const [activeTenantId, setActiveTenantId] = useState(() => {
+    return localStorage.getItem("smartchat_active_tenant") || null;
+  });
+
+  // Load initial tenant if none set
+  useEffect(() => {
+    if (!activeTenantId) {
+      fetch(`${API_BASE}/tenants`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.tenants?.length > 0) {
+            setActiveTenantId(data.tenants[0].id);
+            localStorage.setItem("smartchat_active_tenant", data.tenants[0].id);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [activeTenantId]);
+
+  const handleTenantChange = (id) => {
+    setActiveTenantId(id);
+    localStorage.setItem("smartchat_active_tenant", id);
+  };
 
   return (
     <div style={styles.app}>
@@ -1250,11 +1507,12 @@ export default function App() {
         ))}
       </div>
 
-      {activeTab === "llm" && <LLMConfigTab />}
-      {activeTab === "knowledge" && <KnowledgeBaseTab />}
-      {activeTab === "databases" && <DBConnectionsTab />}
-      {activeTab === "widget" && <WidgetSettingsTab />}
-      {activeTab === "conversations" && <ConversationsTab />}
+      {activeTab === "apikeys" && <APIKeysTab activeTenantId={activeTenantId} onTenantChange={handleTenantChange} />}
+      {activeTab === "llm" && <LLMConfigTab tenantId={activeTenantId} />}
+      {activeTab === "knowledge" && <KnowledgeBaseTab tenantId={activeTenantId} />}
+      {activeTab === "databases" && <DBConnectionsTab tenantId={activeTenantId} />}
+      {activeTab === "widget" && <WidgetSettingsTab tenantId={activeTenantId} />}
+      {activeTab === "conversations" && <ConversationsTab tenantId={activeTenantId} />}
     </div>
   );
 }

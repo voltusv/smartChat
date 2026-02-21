@@ -1,8 +1,9 @@
+import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text, select
+from sqlalchemy import text, select, func
 
 from app.database import engine, async_session, Base
 from app.models import Tenant, LLMConfig, WidgetConfig
@@ -17,15 +18,14 @@ async def lifespan(app: FastAPI):
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
-    # Seed default tenant if not exists
+    # Seed default tenant if no tenants exist
     async with async_session() as db:
-        result = await db.execute(
-            select(Tenant).where(Tenant.embed_api_key == "test-key-123")
-        )
-        tenant = result.scalar_one_or_none()
+        count_result = await db.execute(select(func.count(Tenant.id)))
+        tenant_count = count_result.scalar()
 
-        if not tenant:
-            tenant = Tenant(name="Default", embed_api_key="test-key-123")
+        if tenant_count == 0:
+            api_key = "sc_live_" + secrets.token_urlsafe(32)
+            tenant = Tenant(name="Default", embed_api_key=api_key)
             db.add(tenant)
             await db.commit()
             await db.refresh(tenant)
@@ -51,6 +51,12 @@ async def lifespan(app: FastAPI):
             )
             db.add(widget_config)
             await db.commit()
+
+            print(f"\n{'='*60}")
+            print(f"  SmartChat - Default tenant created")
+            print(f"  API Key: {api_key}")
+            print(f"  Save this key! It will not be shown again.")
+            print(f"{'='*60}\n")
 
     yield
 
